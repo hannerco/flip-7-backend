@@ -2,6 +2,7 @@ package edu.unac.model.game;
 
 import edu.unac.model.card.Card;
 import edu.unac.model.enums.PlayerStatus;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -11,12 +12,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+@Entity
+@Table(name = "players")
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class Player {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     private String name;
@@ -27,9 +32,7 @@ public class Player {
     @Builder.Default
     private Integer roundScore = 0;
 
-    @Builder.Default
-    private List<Card> hand = new ArrayList<>();
-
+    @Enumerated(EnumType.STRING)
     @Builder.Default
     private PlayerStatus status = PlayerStatus.ACTIVE;
 
@@ -38,4 +41,12 @@ public class Player {
 
     @Builder.Default
     private boolean flippedSeven = false;
+
+    @OneToMany(
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @JoinColumn(name = "player_id")
+    @Builder.Default
+    private List<Card> hand = new ArrayList<>();
 }

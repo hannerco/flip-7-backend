@@ -2,6 +2,7 @@ package edu.unac.model.game;
 
 import edu.unac.model.card.Card;
 import edu.unac.model.enums.GameStatus;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -10,15 +11,19 @@ import lombok.NoArgsConstructor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-
+@Entity
+@Table(name = "games")
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class Game {
 
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Enumerated(EnumType.STRING)
     @Builder.Default
     private GameStatus status = GameStatus.WAITING;
 
@@ -29,19 +34,38 @@ public class Game {
 
     private UUID dealerId;
 
-    private Winner winner;
-
+    @OneToMany(
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @JoinColumn(name = "game_id")
     @Builder.Default
     private List<Player> players = new ArrayList<>();
 
-    @Builder.Default
-    private List<Card> deck = new ArrayList<>();
+    /*
+     * HU-A2
+     * Requiere definir completamente la persistencia de cartas.
+     */
+    // private List<Card> deck;
 
-    @Builder.Default
-    private List<Card> discardPile = new ArrayList<>();
+    /*
+     * HU-A2
+     * Requiere definir completamente la persistencia de cartas.
+     */
+    // private List<Card> discardPile;
 
-    private PendingAction pendingAction;
+    /*
+     * HU-B2
+     */
+    // private PendingAction pendingAction;
 
-    @Builder.Default
-    private List<RoundResult> roundHistory = new ArrayList<>();
+    /*
+     * HU-B5
+     */
+    // private List<RoundResult> roundHistory;
+
+    /*
+     * HU-B6
+     */
+    // private Winner winner;
 }
