@@ -1,6 +1,7 @@
 package edu.unac.service.impl;
 
 import edu.unac.model.card.*;
+import edu.unac.model.enums.CardType;
 import edu.unac.model.enums.ModifierType;
 import edu.unac.service.DeckService;
 import org.springframework.stereotype.Service;
@@ -45,10 +46,15 @@ public class DeckServiceImpl implements DeckService {
     private void addActionCards(List<Card> deck) {
 
         for (int i = 0; i < 3; i++) {
+            deck.add(new ActionCard(CardType.FREEZE));
+        }
 
-            deck.add(new FreezeCard());
-            deck.add(new FlipThreeCard());
-            deck.add(new SecondChanceCard());
+        for (int i = 0; i < 3; i++) {
+            deck.add(new ActionCard(CardType.FLIP_THREE));
+        }
+
+        for (int i = 0; i < 3; i++) {
+            deck.add(new ActionCard(CardType.SECOND_CHANCE));
         }
     }
 

@@ -1,6 +1,7 @@
 package edu.unac.service.impl;
 
 import edu.unac.model.card.*;
+import edu.unac.model.enums.CardType;
 import edu.unac.model.enums.ModifierType;
 import org.junit.jupiter.api.Test;
 
@@ -58,7 +59,9 @@ class DeckServiceImplTest {
 
         long freezeCards =
                 deck.stream()
-                        .filter(card -> card instanceof FreezeCard)
+                        .filter(card ->
+                                card instanceof ActionCard
+                                        && card.getType() == CardType.FREEZE)
                         .count();
 
         assertEquals(3, freezeCards);
@@ -71,7 +74,9 @@ class DeckServiceImplTest {
 
         long cards =
                 deck.stream()
-                        .filter(card -> card instanceof FlipThreeCard)
+                        .filter(card ->
+                                card instanceof ActionCard
+                                        && card.getType() == CardType.FLIP_THREE)
                         .count();
 
         assertEquals(3, cards);
@@ -84,7 +89,9 @@ class DeckServiceImplTest {
 
         long cards =
                 deck.stream()
-                        .filter(card -> card instanceof SecondChanceCard)
+                        .filter(card ->
+                                card instanceof ActionCard
+                                        && card.getType() == CardType.SECOND_CHANCE)
                         .count();
 
         assertEquals(3, cards);
