@@ -11,4 +11,9 @@ public interface GameService {
 
     Game getGameById(UUID gameId);
 
+    Game startRound(UUID gameId);
+
+    Game drawCard(UUID gameId, UUID playerId);
+
+    Game stay(UUID gameId, UUID playerId);
 }

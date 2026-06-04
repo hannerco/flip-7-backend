@@ -5,6 +5,8 @@ import edu.unac.model.card.ModifierCard;
 import edu.unac.model.card.NumericCard;
 import edu.unac.model.enums.ModifierType;
 import edu.unac.model.game.Player;
+import edu.unac.repository.GameRepository;
+import edu.unac.service.DeckService;
 import edu.unac.service.ScoreService;
 import org.springframework.stereotype.Service;
 
@@ -12,6 +14,9 @@ import java.util.List;
 
 @Service
 public class ScoreServiceImpl implements ScoreService {
+
+
+
 
     @Override
     public int calculateScore(Player player) {

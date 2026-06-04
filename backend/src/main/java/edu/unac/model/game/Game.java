@@ -42,11 +42,13 @@ public class Game {
     @Builder.Default
     private List<Player> players = new ArrayList<>();
 
-    /*
-     * HU-A2
-     * Requiere definir completamente la persistencia de cartas.
-     */
-    // private List<Card> deck;
+    @OneToMany(
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @JoinColumn(name = "deck_game_id")
+    @Builder.Default
+    private List<Card> deck = new ArrayList<>();
 
     /*
      * HU-A2
