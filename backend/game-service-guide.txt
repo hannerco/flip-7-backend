@@ -1,0 +1,186 @@
+GameServiceImpl - guia de funcionamiento
+
+1. Constructor
+   - Recibe GameRepository, DeckService y ScoreService.
+   - Guarda esas dependencias para que el service pueda persistir el juego, crear mazos y calcular puntajes.
+
+2. createGame(List<String> playerNames)
+   - Valida que existan al menos 2 jugadores.
+   - Convierte cada nombre en un Player nuevo.
+   - Crea un Game con esos jugadores y lo guarda en base de datos.
+   - Este metodo inicia la partida en estado WAITING.
+
+3. getGameById(UUID gameId)
+   - Busca el juego por id.
+   - Si no existe, lanza IllegalArgumentException("Game not found").
+   - Se usa como acceso base para otras operaciones.
+
+4. getFinishedGames()
+   - Devuelve todos los juegos cuyo estado es GAME_OVER.
+   - Se usa para listar partidas terminadas.
+
+5. getFinishedGameById(UUID gameId)
+   - Obtiene el juego por id.
+   - Verifica que su estado sea GAME_OVER.
+   - Si todavia no termino, lanza IllegalArgumentException("Game is not finished").
+
+6. startRound(UUID gameId)
+   - Carga el juego y valida que no este terminado.
+   - Evita arrancar una ronda si ya hay una IN_ROUND.
+   - Sube el numero de ronda, reinicia el estado de la ronda y define jugador inicial y dealer.
+   - Prepara el mazo si esta vacio y reparte las cartas iniciales.
+   - Guarda el juego actualizado.
+
+7. dealInitialCards(Game game)
+   - Reparte una carta por jugador siguiendo el orden de inicio de la ronda.
+   - Si sale una carta FREEZE o FLIP_THREE, pausa el reparto y crea un pendingAction.
+   - Si la carta es numerica, calcula el puntaje parcial del jugador.
+   - Mantiene el conteo de cartas ya repartidas para poder reanudar luego.
+
+8. getStartingPlayerIndex(Game game)
+   - Calcula que jugador inicia la ronda actual.
+   - Usa currentRound para rotar el inicio entre los jugadores.
+
+9. drawCard(UUID gameId, UUID playerId)
+   - Carga el juego y valida que no este terminado.
+   - Verifica que el jugador que pide robar sea el jugador actual.
+   - Roba la carta superior del mazo.
+   - Si es FREEZE o FLIP_THREE, deja una pendingAction pendiente.
+   - Si es una carta normal, la agrega a la mano, recalcula puntaje, avanza el turno y revisa fin de ronda.
+
+10. applyAction(UUID gameId, UUID targetPlayerId)
+   - Recupera el juego y valida que exista una pendingAction.
+   - Resuelve la accion segun su tipo: FREEZE o FLIP_THREE.
+   - Descarta la carta asociada a la accion si corresponde.
+   - Si quedaron acciones diferidas, toma la siguiente y la deja como pendingAction.
+   - Si la ronda estaba pausada por reparto inicial, reanuda ese reparto.
+   - Si no, avanza el turno y revisa si la ronda termino.
+
+11. applyFreeze(Game game, UUID targetPlayerId)
+   - Busca al jugador objetivo.
+   - Valida que siga activo.
+   - Lo marca como STAYED.
+   - Suma su puntaje de ronda al puntaje total y reinicia su puntaje de ronda.
+
+12. applyFlipThree(Game game, UUID targetPlayerId)
+   - Busca al jugador objetivo y valida que este activo.
+   - Lee cuantas cartas faltan resolver de la accion actual.
+   - Roba hasta 3 cartas, pero si aparecen FREEZE o FLIP_THREE, las difiere en una cola.
+   - Si el jugador pierde el estado activo o termina la ronda, limpia acciones diferidas.
+   - Si sigue todo normal, actualiza la cantidad de cartas restantes y puede promover la siguiente accion diferida.
+
+13. queueDeferredPendingAction(Game game, Card card, UUID sourcePlayerId, int remainingCards)
+   - Crea una PendingAction nueva con la carta especial encontrada.
+   - La agrega a la cola deferredPendingActions.
+   - Se usa para no interrumpir el FLIP_THREE en medio de la secuencia.
+
+14. createPendingAction(Game game, Card card, UUID sourcePlayerId, int remainingCards)
+   - Construye una PendingAction inmediata.
+   - La asigna como pendingAction actual del juego.
+   - Se usa cuando la accion debe resolverse antes de seguir jugando.
+
+15. resetRoundState(Game game)
+   - Descarta las manos actuales.
+   - Limpia la pendingAction.
+   - Reinicia puntaje, estado y bandera flippedSeven de todos los jugadores.
+
+16. discardHands(Game game)
+   - Asegura que exista discardPile.
+   - Mueve todas las cartas de la mano de cada jugador al descarte.
+   - Si habia una pendingAction con carta asociada, tambien la descarta.
+
+17. replenishDeckIfNeeded(Game game)
+   - Construye un mazo nuevo desde DeckService.
+   - Reemplaza el contenido del mazo actual con ese mazo nuevo.
+   - Limpia el descarte porque la reconstruccion parte de cero.
+
+18. drawTopCard(Game game)
+   - Si el mazo esta vacio, intenta reconstruirlo.
+   - Si aun asi no hay cartas, lanza IllegalStateException("No cards available").
+   - Si hay cartas, devuelve y elimina la primera del mazo.
+
+19. discardCard(Game game, Card card)
+   - Agrega una carta al discardPile si no es null.
+   - Se usa para mover cartas resueltas o consumidas al descarte.
+
+20. ensureDiscardPile(Game game)
+   - Inicializa discardPile si todavia es null.
+   - Evita NullPointerException cuando el sistema empieza a descartar cartas.
+
+21. applyDrawnCard(Game game, Player player, Card card)
+   - Agrega la carta a la mano del jugador, salvo el caso especial de SECOND_CHANCE.
+   - Si entra una SECOND_CHANCE y el jugador ya tiene una, intenta transferirla a otro jugador activo.
+   - Recalcula el puntaje.
+   - Si el jugador queda en bust, consume la segunda oportunidad si existe; si no, lo marca como BUSTED.
+   - Si se consume la segunda oportunidad, registra un AutomaticEvent para el frontend.
+
+22. removeSecondChanceCard(Player player)
+   - Busca y elimina la primera carta SECOND_CHANCE de la mano.
+   - Devuelve la carta eliminada o null si no existe.
+
+23. consumeSecondChanceIfNeeded(Player player)
+   - Verifica si el jugador tiene una carta SECOND_CHANCE en la mano.
+   - No la consume por si sola; solo funciona como condicion para decidir si se aplica la proteccion.
+
+24. findRecipientForSecondChance(Game game, Player from)
+   - Busca el siguiente jugador activo que no tenga ya una SECOND_CHANCE.
+   - Se usa cuando una segunda copia de esa carta debe transferirse en vez de quedarse en la misma mano.
+
+25. removeLastCard(Player player)
+   - Elimina y devuelve la ultima carta de la mano.
+   - Se usa cuando se calcula el bust y hay que retirar la carta que lo disparo.
+
+26. isBusted(Player player)
+   - Revisa solo las cartas numericas de la mano.
+   - Si existe un valor numerico repetido, el jugador esta bust.
+
+27. advanceTurn(Game game)
+   - Busca el siguiente jugador con estado ACTIVE.
+   - Si encuentra uno, lo pone como currentPlayerId.
+   - Si no queda nadie activo, deja currentPlayerId en null.
+
+28. stay(UUID gameId, UUID playerId)
+   - Valida que el juego exista y no haya terminado.
+   - Verifica que sea el turno del jugador.
+   - Marca al jugador como STAYED, avanza el turno y revisa si la ronda termino.
+
+29. findPlayer(Game game, UUID playerId)
+   - Busca un jugador por id dentro del juego.
+   - Si no lo encuentra, lanza IllegalArgumentException("Player not found").
+
+30. checkRoundEnd(Game game)
+   - Primero revisa si alguien alcanzo Flip 7.
+   - Si eso ocurre, marca flippedSeven, cierra la ronda y calcula puntajes.
+   - Si no hay jugadores activos, tambien cierra la ronda y calcula puntajes.
+
+31. calculateRoundScores(Game game)
+   - Guarda el resultado de la ronda en roundHistory.
+   - Suma el puntaje de ronda al total de cada jugador que no este busted.
+   - Si alguien supera o iguala 200 puntos, define ganador y marca el juego como GAME_OVER.
+
+32. ensureGameIsNotFinished(Game game)
+   - Bloquea operaciones si el juego ya termino.
+   - Lanza IllegalStateException("Game is already finished") cuando el estado es GAME_OVER.
+
+33. hasWinner(Game game)
+   - Verifica si algun jugador llego a 200 puntos o mas.
+   - Es la condicion previa para cerrar el juego con ganador.
+
+34. determineWinner(Game game)
+   - Busca al jugador con mayor puntaje total.
+   - Devuelve un Winner con id, nombre y puntaje.
+
+Resumen rapido del flujo
+   - createGame crea la partida.
+   - startRound inicia cada ronda y reparte cartas.
+   - drawCard ejecuta el turno normal.
+   - applyAction resuelve acciones bloqueantes.
+   - stay cierra el turno voluntariamente.
+   - checkRoundEnd y calculateRoundScores cierran rondas y determinan ganador.
+
+Puntos clave para explicarlo en una defensa
+   - Game es el estado central de la partida.
+   - DeckService solo crea o reconstruye cartas.
+   - ScoreService decide puntaje y reglas de bust / Flip 7.
+   - pendingAction y deferredPendingActions controlan interrupciones por cartas especiales.
+   - lastAutomaticEvent permite que el frontend entienda resoluciones automaticas como SECOND_CHANCE.
