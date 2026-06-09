@@ -406,7 +406,7 @@ class GameServiceImplTest {
     }
 
     @Test
-    void shouldReuseExistingDeckWhenStartingNewRound() {
+        void shouldRebuildDeckWhenStartingNewRoundRunsOutOfCards() {
 
         Player alice = Player.builder()
                 .id(UUID.randomUUID())
@@ -435,15 +435,21 @@ class GameServiceImplTest {
         when(gameRepository.save(any(Game.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
+        when(deckService.buildDeck())
+                .thenReturn(new ArrayList<>(List.of(
+                        new NumericCard(1),
+                        new NumericCard(2),
+                        new NumericCard(3)
+                )));
+
         Game result = gameService.startRound(UUID.randomUUID());
 
-        verify(deckService, never()).buildDeck();
-                assertEquals(2, result.getDeck().size());
+        verify(deckService).buildDeck();
+        assertEquals(2, result.getDeck().size());
         assertEquals(1, result.getPlayers().get(0).getHand().size());
         assertEquals(1, result.getPlayers().get(1).getHand().size());
         assertEquals(PlayerStatus.ACTIVE, result.getPlayers().get(0).getStatus());
         assertEquals(PlayerStatus.ACTIVE, result.getPlayers().get(1).getStatus());
-                assertEquals(0, result.getDiscardPile().size());
     }
 
     @Test
@@ -472,14 +478,23 @@ class GameServiceImplTest {
         when(gameRepository.save(any(Game.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
+        when(deckService.buildDeck())
+                .thenReturn(new ArrayList<>(List.of(
+                        new NumericCard(1),
+                        new NumericCard(2),
+                        new NumericCard(3)
+                )));
+
         when(scoreService.calculateScore(any()))
                 .thenReturn(7);
 
         Game result = gameService.drawCard(UUID.randomUUID(), playerId);
 
         assertEquals(1, result.getPlayers().get(0).getHand().size());
-        assertEquals(1, result.getDeck().size());
+        assertEquals(2, result.getDeck().size());
         assertEquals(0, result.getDiscardPile().size());
+
+        verify(deckService).buildDeck();
     }
 
     @Test
@@ -1326,6 +1341,59 @@ class GameServiceImplTest {
     }
 
     @Test
+    void shouldTransferSecondChanceToAnotherActivePlayer() {
+
+        UUID currentPlayerId = UUID.randomUUID();
+        UUID otherPlayerId = UUID.randomUUID();
+
+        Player currentPlayer = Player.builder()
+                .id(currentPlayerId)
+                .name("Alice")
+                .hand(new ArrayList<>(List.of(
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .build();
+
+        Player otherPlayer = Player.builder()
+                .id(otherPlayerId)
+                .name("Bob")
+                .build();
+
+        Game game = Game.builder()
+                .currentPlayerId(currentPlayerId)
+                .players(new ArrayList<>(List.of(currentPlayer, otherPlayer)))
+                .deck(new ArrayList<>(List.of(
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .build();
+
+        when(gameRepository.findById(any()))
+                .thenReturn(Optional.of(game));
+
+        when(gameRepository.save(any(Game.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(scoreService.calculateScore(any()))
+                .thenReturn(0);
+
+        gameService.drawCard(
+                UUID.randomUUID(),
+                currentPlayerId
+        );
+
+        boolean currentHasSecondChance = currentPlayer.getHand().stream()
+                .anyMatch(card -> card instanceof ActionCard actionCard
+                        && actionCard.getType() == CardType.SECOND_CHANCE);
+
+        boolean otherHasSecondChance = otherPlayer.getHand().stream()
+                .anyMatch(card -> card instanceof ActionCard actionCard
+                        && actionCard.getType() == CardType.SECOND_CHANCE);
+
+        assertTrue(currentHasSecondChance);
+        assertTrue(otherHasSecondChance);
+    }
+
+    @Test
     void shouldThrowWhenPlayerDrawsOutOfTurn() {
 
         UUID currentPlayerId = UUID.randomUUID();
@@ -2068,6 +2136,78 @@ class GameServiceImplTest {
         boolean hasSecondAfterFlipThree = result.getPlayers().get(0).getHand().stream().anyMatch(c -> c instanceof ActionCard ac && ac.getType() == CardType.SECOND_CHANCE);
         assertFalse(hasSecondAfterFlipThree);
         assertEquals(PlayerStatus.ACTIVE, result.getPlayers().get(0).getStatus());
+    }
+
+    @Test
+    void shouldDeferFlipThreeSpecialCardsUntilAllThreeCardsAreDrawn() {
+
+        UUID sourcePlayerId = UUID.randomUUID();
+        UUID targetPlayerId = UUID.randomUUID();
+        UUID otherActivePlayerId = UUID.randomUUID();
+
+        Player sourcePlayer = Player.builder()
+                .id(sourcePlayerId)
+                .name("Alice")
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Player targetPlayer = Player.builder()
+                .id(targetPlayerId)
+                .name("Bob")
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Player otherActivePlayer = Player.builder()
+                .id(otherActivePlayerId)
+                .name("Carol")
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        PendingAction pendingAction = new PendingAction();
+        pendingAction.setId(null);
+        pendingAction.setType(CardType.FLIP_THREE);
+        pendingAction.setCard(new ActionCard(CardType.FLIP_THREE));
+        pendingAction.setSourcePlayerId(sourcePlayerId);
+        pendingAction.setRemainingCards(3);
+
+        Game game = Game.builder()
+                .currentPlayerId(sourcePlayerId)
+                .players(new ArrayList<>(List.of(sourcePlayer, targetPlayer, otherActivePlayer)))
+                .deck(new ArrayList<>(List.of(
+                        new ActionCard(CardType.FREEZE),
+                        new ActionCard(CardType.FLIP_THREE),
+                        new NumericCard(8)
+                )))
+                .pendingAction(pendingAction)
+                .build();
+
+        when(gameRepository.findById(any()))
+                .thenReturn(Optional.of(game));
+
+        when(gameRepository.save(any(Game.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(scoreService.calculateScore(any()))
+                .thenReturn(8);
+
+        Game result = gameService.applyAction(
+                UUID.randomUUID(),
+                targetPlayerId
+        );
+
+        assertNotNull(result.getPendingAction());
+        assertEquals(CardType.FREEZE, result.getPendingAction().getType());
+        assertEquals(1, result.getPlayers().get(1).getHand().size());
+        assertEquals(8, result.getPlayers().get(1).getHand().get(0).getType() == CardType.NUMBER ? ((NumericCard) result.getPlayers().get(1).getHand().get(0)).getValue() : -1);
+
+        Game afterFreeze = gameService.applyAction(
+                UUID.randomUUID(),
+                sourcePlayerId
+        );
+
+        assertNotNull(afterFreeze.getPendingAction());
+        assertEquals(CardType.FLIP_THREE, afterFreeze.getPendingAction().getType());
+        assertEquals(PlayerStatus.STAYED, afterFreeze.getPlayers().get(0).getStatus());
     }
 
 }

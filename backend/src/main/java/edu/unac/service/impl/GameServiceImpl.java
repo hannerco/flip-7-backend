@@ -17,7 +17,6 @@ import org.springframework.stereotype.Service;
 import java.util.UUID;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import edu.unac.model.game.RoundResult;
 import edu.unac.model.game.RoundPlayerScore;
@@ -285,6 +284,8 @@ public class GameServiceImpl implements GameService {
             );
         }
 
+        PendingAction resolvedPendingAction = pendingAction;
+
         switch (pendingAction.getType()) {
 
             case FREEZE -> applyFreeze(
@@ -299,12 +300,37 @@ public class GameServiceImpl implements GameService {
             );
         }
 
-                if (game.getPendingAction() == pendingAction && pendingAction.getCard() != null) {
-                        discardCard(game, pendingAction.getCard());
+        if (resolvedPendingAction.getCard() != null) {
+                discardCard(game, resolvedPendingAction.getCard());
+        }
+
+        if (game.getPendingAction() != resolvedPendingAction) {
+
+                if (game.getPendingAction() != null) {
+                        return gameRepository.save(game);
                 }
 
-        if (game.getPendingAction() == pendingAction) {
+                if (game.getDeferredPendingActions() != null
+                                && !game.getDeferredPendingActions().isEmpty()) {
+                        game.setPendingAction(
+                                        game.getDeferredPendingActions().remove(0)
+                        );
+
+                        return gameRepository.save(game);
+                }
+        }
+
+        if (game.getPendingAction() == resolvedPendingAction) {
             game.setPendingAction(null);
+
+                        if (game.getDeferredPendingActions() != null
+                                        && !game.getDeferredPendingActions().isEmpty()) {
+                                game.setPendingAction(
+                                                game.getDeferredPendingActions().remove(0)
+                                );
+
+                                return gameRepository.save(game);
+                        }
 
                         if (game.isInitialDealPaused()) {
                                 dealInitialCards(game);
@@ -373,6 +399,12 @@ public class GameServiceImpl implements GameService {
                 ? 3
                 : currentPendingAction.getRemainingCards();
 
+        if (game.getDeferredPendingActions() == null) {
+                game.setDeferredPendingActions(new ArrayList<>());
+        }
+
+        PendingAction firstDeferredPendingAction = null;
+
         while (remainingCards > 0
                 && target.getStatus() == PlayerStatus.ACTIVE
                 && game.getStatus() != GameStatus.ROUND_END
@@ -384,16 +416,25 @@ public class GameServiceImpl implements GameService {
                     && (actionCard.getType() == CardType.FREEZE
                     || actionCard.getType() == CardType.FLIP_THREE)) {
 
-                                discardCard(game, currentPendingAction.getCard());
+                                queueDeferredPendingAction(
+                                                game,
+                                                card,
+                                                target.getId(),
+                                                actionCard.getType() == CardType.FLIP_THREE ? 3 : 0
+                                );
 
-                createPendingAction(
-                        game,
-                        card,
-                        target.getId(),
-                        actionCard.getType() == CardType.FLIP_THREE ? 3 : 0
-                );
+                                if (firstDeferredPendingAction == null) {
+                                        firstDeferredPendingAction = game.getDeferredPendingActions().remove(0);
+                                }
 
-                                return;
+                                remainingCards--;
+
+                                if (game.getStatus() == GameStatus.ROUND_END
+                                                || target.getStatus() != PlayerStatus.ACTIVE) {
+                                        break;
+                                }
+
+                                continue;
             }
 
             applyDrawnCard(game, target, card);
@@ -404,12 +445,48 @@ public class GameServiceImpl implements GameService {
                     || target.getStatus() != PlayerStatus.ACTIVE) {
                 break;
             }
+
+            checkRoundEnd(game);
+
+            if (game.getStatus() == GameStatus.ROUND_END
+                    || target.getStatus() != PlayerStatus.ACTIVE) {
+                break;
+            }
         }
 
-                if (game.getPendingAction() == currentPendingAction) {
-                                currentPendingAction.setRemainingCards(remainingCards);
+        if (target.getStatus() != PlayerStatus.ACTIVE
+                || game.getStatus() == GameStatus.ROUND_END) {
+                if (game.getDeferredPendingActions() != null) {
+                        game.getDeferredPendingActions().clear();
                 }
+                return;
+        }
+
+        if (game.getPendingAction() == currentPendingAction) {
+                currentPendingAction.setRemainingCards(remainingCards);
+
+                if (firstDeferredPendingAction != null) {
+                        game.setPendingAction(firstDeferredPendingAction);
+                }
+        }
     }
+
+        private void queueDeferredPendingAction(
+                        Game game,
+                        Card card,
+                        UUID sourcePlayerId,
+                        int remainingCards
+        ) {
+
+                PendingAction deferredPendingAction = new PendingAction();
+                deferredPendingAction.setId(null);
+                deferredPendingAction.setType(card.getType());
+                deferredPendingAction.setCard(card);
+                deferredPendingAction.setSourcePlayerId(sourcePlayerId);
+                deferredPendingAction.setRemainingCards(remainingCards);
+
+                game.getDeferredPendingActions().add(deferredPendingAction);
+        }
 
         private void createPendingAction(
                         Game game,
@@ -461,13 +538,18 @@ public class GameServiceImpl implements GameService {
 
         private void replenishDeckIfNeeded(Game game) {
 
-                if (game.getDiscardPile() == null || game.getDiscardPile().isEmpty()) {
-                        return;
+                List<Card> rebuiltDeck = new ArrayList<>(deckService.buildDeck());
+
+                if (game.getDeck() == null) {
+                        game.setDeck(new ArrayList<>());
                 }
 
-                game.getDeck().addAll(game.getDiscardPile());
-                game.getDiscardPile().clear();
-                Collections.shuffle(game.getDeck());
+                game.getDeck().clear();
+                game.getDeck().addAll(rebuiltDeck);
+
+                if (game.getDiscardPile() != null) {
+                        game.getDiscardPile().clear();
+                }
         }
 
         private Card drawTopCard(Game game) {

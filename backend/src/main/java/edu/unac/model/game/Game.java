@@ -88,4 +88,8 @@ public class Game {
     @Transient
     private AutomaticEvent lastAutomaticEvent;
 
+        @Transient
+        @Builder.Default
+        private List<PendingAction> deferredPendingActions = new ArrayList<>();
+
 }

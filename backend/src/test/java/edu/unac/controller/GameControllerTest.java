@@ -8,7 +8,6 @@ import edu.unac.model.enums.CardType;
 import edu.unac.model.enums.GameStatus;
 import edu.unac.model.enums.PlayerStatus;
 import edu.unac.model.game.Game;
-import edu.unac.model.game.PendingAction;
 import edu.unac.model.game.Player;
 import edu.unac.model.game.Winner;
 import edu.unac.repository.GameRepository;
@@ -154,7 +153,6 @@ class GameControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"targetPlayerId\":\"" + targetPlayerId + "\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.pendingAction").doesNotExist())
                 .andExpect(jsonPath("$.players[1].status").value("STAYED"));
 
         org.junit.jupiter.api.Assertions.assertTrue(drawResponse.has("pendingAction"));
@@ -163,8 +161,6 @@ class GameControllerTest {
     @Test
     void shouldListFinishedGamesAndReturnFinishedDetail() throws Exception {
 
-        UUID winnerId = UUID.randomUUID();
-
         Game game = Game.builder()
                 .status(GameStatus.GAME_OVER)
                 .currentRound(5)
@@ -172,7 +168,7 @@ class GameControllerTest {
                         Player.builder().name("Alice").totalScore(205).status(PlayerStatus.STAYED).build(),
                         Player.builder().name("Bob").totalScore(180).status(PlayerStatus.BUSTED).build()
                 )))
-                .winner(new Winner(winnerId, "Alice", 205))
+                .winner(new Winner(UUID.randomUUID(), "Alice", 205))
                 .build();
 
         Game savedGame = gameRepository.saveAndFlush(game);
@@ -220,6 +216,6 @@ class GameControllerTest {
             game.getDeck().add((edu.unac.model.card.Card) card);
         }
 
-                gameRepository.saveAndFlush(game);
+        gameRepository.saveAndFlush(game);
     }
 }
