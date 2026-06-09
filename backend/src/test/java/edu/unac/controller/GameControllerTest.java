@@ -1,36 +1,44 @@
 package edu.unac.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import edu.unac.dto.response.FinishedGameResponse;
-import edu.unac.dto.response.GameResponse;
-import edu.unac.dto.response.RoundPlayerScoreResponse;
-import edu.unac.dto.response.RoundResultResponse;
-import edu.unac.dto.response.WinnerResponse;
-import edu.unac.mapper.GameMapper;
+import edu.unac.model.card.ActionCard;
+import edu.unac.model.card.NumericCard;
+import edu.unac.model.enums.CardType;
 import edu.unac.model.enums.GameStatus;
+import edu.unac.model.enums.PlayerStatus;
 import edu.unac.model.game.Game;
-import edu.unac.service.GameService;
+import edu.unac.model.game.PendingAction;
+import edu.unac.model.game.Player;
+import edu.unac.model.game.Winner;
+import edu.unac.repository.GameRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
+import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase.Replace;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.annotation.DirtiesContext.ClassMode;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(GameController.class)
+@SpringBootTest
+@AutoConfigureMockMvc
+@AutoConfigureTestDatabase(replace = Replace.NONE)
+@Transactional
+@DirtiesContext(classMode = ClassMode.AFTER_CLASS)
 class GameControllerTest {
 
     @Autowired
@@ -39,183 +47,179 @@ class GameControllerTest {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
-    private GameService gameService;
+    @Autowired
+    private GameRepository gameRepository;
 
-    @MockBean
-    private GameMapper gameMapper;
+    @BeforeEach
+    void cleanDatabase() {
+        gameRepository.deleteAll();
+    }
 
     @Test
-    void shouldApplyActionSuccessfully() throws Exception {
+    void shouldCreateGameAndReturnGameId() throws Exception {
 
-        UUID gameId = UUID.randomUUID();
-        UUID targetPlayerId = UUID.randomUUID();
+        mockMvc.perform(post("/games")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerNames\":[\"Alice\",\"Bob\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.gameId").isNotEmpty());
+    }
 
-        Game game = Game.builder().id(gameId).build();
+    @Test
+    void shouldStartRoundAndExposePlayersState() throws Exception {
 
-        GameResponse response = new GameResponse();
-        response.setId(gameId);
-        response.setStatus(GameStatus.IN_ROUND);
+        UUID gameId = createGame();
+        seedDeck(gameId, List.of(
+                new NumericCard(1),
+                new NumericCard(2),
+                new NumericCard(3),
+                new NumericCard(4)
+        ));
 
-        when(gameService.applyAction(eq(gameId), eq(targetPlayerId)))
-                .thenReturn(game);
+        mockMvc.perform(post("/games/{gameId}/rounds/start", gameId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(gameId.toString()))
+                .andExpect(jsonPath("$.status").value("IN_ROUND"))
+                .andExpect(jsonPath("$.players.length()").value(2))
+                .andExpect(jsonPath("$.players[0].cards.length()").value(1))
+                .andExpect(jsonPath("$.players[1].cards.length()").value(1));
+    }
 
-        when(gameMapper.toResponse(game)).thenReturn(response);
+    @Test
+    void shouldDrawCardAndAdvanceTurnUsingRealServices() throws Exception {
 
-        String payload = objectMapper.writeValueAsString(
-                new ApplyActionBody(targetPlayerId)
+        UUID gameId = createGame();
+        seedDeck(gameId, List.of(
+                new NumericCard(1),
+                new NumericCard(2),
+                new NumericCard(5),
+                new NumericCard(6)
+        ));
+
+        JsonNode startResponse = objectMapper.readTree(
+                mockMvc.perform(post("/games/{gameId}/rounds/start", gameId))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString()
+        );
+
+        UUID currentPlayerId = UUID.fromString(startResponse.get("currentPlayerId").asText());
+
+        mockMvc.perform(post("/games/{gameId}/draw", gameId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + currentPlayerId + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentPlayerId").isNotEmpty())
+                .andExpect(jsonPath("$.players.length()").value(2));
+    }
+
+    @Test
+    void shouldExposePendingActionAndResolveIt() throws Exception {
+
+        UUID gameId = createGame();
+        Game game = gameRepository.findById(gameId).orElseThrow();
+
+        game.setDeck(new ArrayList<>(List.of(
+                new NumericCard(1),
+                new NumericCard(2),
+                new ActionCard(CardType.FREEZE)
+        )));
+        gameRepository.saveAndFlush(game);
+
+        JsonNode startResponse = objectMapper.readTree(
+                mockMvc.perform(post("/games/{gameId}/rounds/start", gameId))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString()
+        );
+
+        UUID sourcePlayerId = UUID.fromString(startResponse.get("currentPlayerId").asText());
+        UUID targetPlayerId = UUID.fromString(startResponse.get("players").get(1).get("id").asText());
+
+        JsonNode drawResponse = objectMapper.readTree(
+                mockMvc.perform(post("/games/{gameId}/draw", gameId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerId\":\"" + sourcePlayerId + "\"}"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.pendingAction.type").value("FREEZE"))
+                        .andExpect(jsonPath("$.pendingAction.targetOptions.length()").value(1))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString()
         );
 
         mockMvc.perform(post("/games/{gameId}/actions", gameId)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
+                        .content("{\"targetPlayerId\":\"" + targetPlayerId + "\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(gameId.toString()))
-                .andExpect(jsonPath("$.status").value("IN_ROUND"));
+                .andExpect(jsonPath("$.pendingAction").doesNotExist())
+                .andExpect(jsonPath("$.players[1].status").value("STAYED"));
 
-        verify(gameService).applyAction(gameId, targetPlayerId);
-        verify(gameMapper).toResponse(game);
+        org.junit.jupiter.api.Assertions.assertTrue(drawResponse.has("pendingAction"));
     }
 
     @Test
-    void shouldForwardNullTargetPlayerIdWhenMissing() throws Exception {
+    void shouldListFinishedGamesAndReturnFinishedDetail() throws Exception {
 
-        UUID gameId = UUID.randomUUID();
+        UUID winnerId = UUID.randomUUID();
 
-        Game game = Game.builder().id(gameId).build();
+        Game game = Game.builder()
+                .status(GameStatus.GAME_OVER)
+                .currentRound(5)
+                .players(new ArrayList<>(List.of(
+                        Player.builder().name("Alice").totalScore(205).status(PlayerStatus.STAYED).build(),
+                        Player.builder().name("Bob").totalScore(180).status(PlayerStatus.BUSTED).build()
+                )))
+                .winner(new Winner(winnerId, "Alice", 205))
+                .build();
 
-        GameResponse response = new GameResponse();
-        response.setId(gameId);
-        response.setStatus(GameStatus.IN_ROUND);
+        Game savedGame = gameRepository.saveAndFlush(game);
+        UUID gameId = savedGame.getId();
 
-        when(gameService.applyAction(eq(gameId), any()))
-                .thenReturn(game);
-
-        when(gameMapper.toResponse(game)).thenReturn(response);
-
-        String payload = "{}";
-
-        mockMvc.perform(post("/games/{gameId}/actions", gameId)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
+        mockMvc.perform(get("/games/finished"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(gameId.toString()));
+                .andExpect(jsonPath("$[0].id").value(gameId.toString()))
+                .andExpect(jsonPath("$[0].winner.name").value("Alice"));
 
-        verify(gameService).applyAction(eq(gameId), any());
+        mockMvc.perform(get("/games/finished/{gameId}", gameId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(gameId.toString()))
+                .andExpect(jsonPath("$.status").value("GAME_OVER"));
     }
 
-        @Test
-        void shouldReturnRoundHistoryWhenGettingGame() throws Exception {
+    @Test
+    void shouldReturnBadRequestWhenGameIsNotFinishedForFinishedDetail() throws Exception {
 
-                UUID gameId = UUID.randomUUID();
-                UUID playerId = UUID.randomUUID();
+        UUID gameId = createGame();
 
-                Game game = Game.builder().id(gameId).build();
+        mockMvc.perform(get("/games/finished/{gameId}", gameId))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.message").value("Game is not finished"));
+    }
 
-                RoundPlayerScoreResponse scoreResponse = new RoundPlayerScoreResponse();
-                scoreResponse.setId(UUID.randomUUID());
-                scoreResponse.setPlayerId(playerId);
-                scoreResponse.setPlayerName("Alice");
-                scoreResponse.setScore(21);
-                scoreResponse.setBusted(false);
-                scoreResponse.setFlippedSeven(true);
+    private UUID createGame() throws Exception {
+        String response = mockMvc.perform(post("/games")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"playerNames\":[\"Alice\",\"Bob\"]}"))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
 
-                RoundResultResponse roundResponse = new RoundResultResponse();
-                roundResponse.setId(UUID.randomUUID());
-                roundResponse.setRoundNumber(2);
-                roundResponse.setScores(List.of(scoreResponse));
+        return objectMapper.readTree(response).get("gameId").traverse(objectMapper).readValueAs(UUID.class);
+    }
 
-                GameResponse response = new GameResponse();
-                response.setId(gameId);
-                response.setStatus(GameStatus.IN_ROUND);
-                response.setRoundHistory(List.of(roundResponse));
+    private void seedDeck(UUID gameId, List<?> cards) {
+        Game game = gameRepository.findById(gameId).orElseThrow();
+        game.setDeck(new ArrayList<>());
 
-                when(gameService.getGameById(eq(gameId))).thenReturn(game);
-                when(gameMapper.toResponse(game)).thenReturn(response);
-
-                mockMvc.perform(get("/games/{gameId}", gameId))
-                                .andExpect(status().isOk())
-                                .andExpect(jsonPath("$.id").value(gameId.toString()))
-                                .andExpect(jsonPath("$.roundHistory[0].roundNumber").value(2))
-                                .andExpect(jsonPath("$.roundHistory[0].scores[0].playerName").value("Alice"))
-                                .andExpect(jsonPath("$.roundHistory[0].scores[0].flippedSeven").value(true));
-
-                verify(gameService).getGameById(gameId);
-                verify(gameMapper).toResponse(game);
+        for (Object card : cards) {
+            game.getDeck().add((edu.unac.model.card.Card) card);
         }
 
-        @Test
-        void shouldListFinishedGames() throws Exception {
-
-                UUID gameId = UUID.randomUUID();
-
-                Game finishedGame = Game.builder()
-                                .id(gameId)
-                                .status(GameStatus.GAME_OVER)
-                                .build();
-
-                WinnerResponse winnerResponse = new WinnerResponse();
-                winnerResponse.setId(UUID.randomUUID());
-                winnerResponse.setName("Bob");
-                winnerResponse.setTotalScore(205);
-
-                FinishedGameResponse finishedGameResponse = new FinishedGameResponse();
-                finishedGameResponse.setId(gameId);
-                finishedGameResponse.setCurrentRound(4);
-                finishedGameResponse.setPlayersCount(2);
-                finishedGameResponse.setWinner(winnerResponse);
-
-                when(gameService.getFinishedGames()).thenReturn(List.of(finishedGame));
-                when(gameMapper.toFinishedGameResponse(finishedGame)).thenReturn(finishedGameResponse);
-
-                mockMvc.perform(get("/games/finished"))
-                                .andExpect(status().isOk())
-                                .andExpect(jsonPath("$[0].id").value(gameId.toString()))
-                                .andExpect(jsonPath("$[0].winner.name").value("Bob"))
-                                .andExpect(jsonPath("$[0].playersCount").value(2));
-
-                verify(gameService).getFinishedGames();
-                verify(gameMapper).toFinishedGameResponse(finishedGame);
-        }
-
-        @Test
-        void shouldReturnFinishedGameDetail() throws Exception {
-
-                UUID gameId = UUID.randomUUID();
-                Game finishedGame = Game.builder().id(gameId).status(GameStatus.GAME_OVER).build();
-
-                GameResponse response = new GameResponse();
-                response.setId(gameId);
-                response.setStatus(GameStatus.GAME_OVER);
-
-                when(gameService.getFinishedGameById(eq(gameId))).thenReturn(finishedGame);
-                when(gameMapper.toResponse(finishedGame)).thenReturn(response);
-
-                mockMvc.perform(get("/games/finished/{gameId}", gameId))
-                                .andExpect(status().isOk())
-                                .andExpect(jsonPath("$.id").value(gameId.toString()))
-                                .andExpect(jsonPath("$.status").value("GAME_OVER"));
-
-                verify(gameService).getFinishedGameById(gameId);
-                verify(gameMapper).toResponse(finishedGame);
-        }
-
-        @Test
-        void shouldReturnBadRequestWhenFinishedGameDoesNotExistForDetail() throws Exception {
-
-                UUID gameId = UUID.randomUUID();
-
-                when(gameService.getFinishedGameById(eq(gameId)))
-                                .thenThrow(new IllegalArgumentException("Game is not finished"));
-
-                mockMvc.perform(get("/games/finished/{gameId}", gameId))
-                                .andExpect(status().isBadRequest())
-                                .andExpect(jsonPath("$.error").value("BAD_REQUEST"))
-                                .andExpect(jsonPath("$.message").value("Game is not finished"));
-
-                verify(gameService).getFinishedGameById(gameId);
-        }
-
-    private record ApplyActionBody(UUID targetPlayerId) {
+                gameRepository.saveAndFlush(game);
     }
 }

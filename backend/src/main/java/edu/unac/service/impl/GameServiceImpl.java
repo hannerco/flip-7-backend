@@ -49,11 +49,11 @@ public class GameServiceImpl implements GameService {
             throw new IllegalArgumentException("Need at least 2 players");
         }
 
-        List<Player> players = playerNames.stream()
+        List<Player> players = new ArrayList<>(playerNames.stream()
                 .map(name -> Player.builder()
                         .name(name)
                         .build())
-                .toList();
+                .toList());
 
         Game game = Game.builder()
                 .players(players)
