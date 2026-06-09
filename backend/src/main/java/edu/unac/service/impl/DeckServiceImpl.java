@@ -3,14 +3,12 @@ package edu.unac.service.impl;
 import edu.unac.model.card.*;
 import edu.unac.model.enums.CardType;
 import edu.unac.model.enums.ModifierType;
-import edu.unac.model.game.Game;
 import edu.unac.service.DeckService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
 @Service
 public class DeckServiceImpl implements DeckService {

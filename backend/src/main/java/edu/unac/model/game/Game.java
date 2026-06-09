@@ -50,24 +50,42 @@ public class Game {
     @Builder.Default
     private List<Card> deck = new ArrayList<>();
 
-    /*
-     * HU-A2
-     * Requiere definir completamente la persistencia de cartas.
-     */
-    // private List<Card> discardPile;
+    @OneToMany(
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    @JoinColumn(name = "discard_game_id")
+    @Builder.Default
+    private List<Card> discardPile = new ArrayList<>();
 
-    /*
-     * HU-B2
-     */
-    // private PendingAction pendingAction;
+    @OneToMany(
+            cascade = CascadeType.ALL,
+            orphanRemoval = true,
+            mappedBy = "game"
+    )
+    @Builder.Default
+    private List<RoundResult> roundHistory = new ArrayList<>();
 
-    /*
-     * HU-B5
-     */
-    // private List<RoundResult> roundHistory;
+    private Integer initialDealCardsDealtCount;
 
-    /*
-     * HU-B6
-     */
-    // private Winner winner;
+    @Builder.Default
+    private boolean initialDealPaused = false;
+
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "id", column = @Column(name = "winner_id")),
+            @AttributeOverride(name = "name", column = @Column(name = "winner_name")),
+            @AttributeOverride(name = "totalScore", column = @Column(name = "winner_total_score"))
+    })
+    private Winner winner;
+
+    @OneToOne(
+            cascade = CascadeType.ALL,
+            orphanRemoval = true
+    )
+    private PendingAction pendingAction;
+
+    @Transient
+    private AutomaticEvent lastAutomaticEvent;
+
 }

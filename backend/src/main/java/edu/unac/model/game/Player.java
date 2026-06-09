@@ -36,8 +36,6 @@ public class Player {
     @Builder.Default
     private PlayerStatus status = PlayerStatus.ACTIVE;
 
-    @Builder.Default
-    private boolean secondChance = false;
 
     @Builder.Default
     private boolean flippedSeven = false;

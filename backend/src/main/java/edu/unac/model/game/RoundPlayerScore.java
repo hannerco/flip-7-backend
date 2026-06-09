@@ -1,7 +1,5 @@
 package edu.unac.model.game;
 
-import edu.unac.model.card.Card;
-import edu.unac.model.enums.CardType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -10,25 +8,26 @@ import lombok.NoArgsConstructor;
 
 import java.util.UUID;
 
-@Builder
 @Entity
+@Table(name = "round_player_scores")
 @Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class PendingAction {
+public class RoundPlayerScore {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Enumerated(EnumType.STRING)
-    private CardType type;
+    private UUID playerId;
 
-    @OneToOne(cascade = CascadeType.ALL)
-    private Card card;
+    private String playerName;
 
-    private UUID sourcePlayerId;
+    private Integer score;
 
-    @Builder.Default
-    private Integer remainingCards = 0;
+    private boolean busted;
+
+    private boolean flippedSeven;
+
 }

@@ -1,10 +1,13 @@
 package edu.unac.service.impl;
 
+import edu.unac.model.card.ActionCard;
 import edu.unac.model.card.Card;
 import edu.unac.model.card.NumericCard;
+import edu.unac.model.enums.CardType;
 import edu.unac.model.enums.GameStatus;
 import edu.unac.model.enums.PlayerStatus;
 import edu.unac.model.game.Game;
+import edu.unac.model.game.PendingAction;
 import edu.unac.model.game.Player;
 import edu.unac.repository.GameRepository;
 import edu.unac.service.DeckService;
@@ -13,7 +16,13 @@ import edu.unac.service.ScoreService;
 import org.springframework.stereotype.Service;
 import java.util.UUID;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import edu.unac.model.game.RoundResult;
+import edu.unac.model.game.RoundPlayerScore;
+import edu.unac.model.game.Winner;
+import edu.unac.model.game.AutomaticEvent;
 
 @Service
 public class GameServiceImpl implements GameService {
@@ -64,6 +73,24 @@ public class GameServiceImpl implements GameService {
                 );
     }
 
+        @Override
+        public List<Game> getFinishedGames() {
+
+                return gameRepository.findAllByStatus(GameStatus.GAME_OVER);
+        }
+
+        @Override
+        public Game getFinishedGameById(UUID gameId) {
+
+                Game game = getGameById(gameId);
+
+                if (game.getStatus() != GameStatus.GAME_OVER) {
+                        throw new IllegalArgumentException("Game is not finished");
+                }
+
+                return game;
+        }
+
     @Override
     public Game startRound(UUID gameId) {
 
@@ -74,64 +101,104 @@ public class GameServiceImpl implements GameService {
                         )
                 );
 
-        game.setCurrentRound(
-                game.getCurrentRound() + 1
-        );
+        ensureGameIsNotFinished(game);
 
-        game.setDeck(
-                deckService.buildDeck()
-        );
-
-        dealInitialCards(game);
-
-        for (Player player : game.getPlayers()) {
-
-            player.setRoundScore(0);
-            player.setSecondChance(false);
-            player.setFlippedSeven(false);
+        if (game.getStatus() == GameStatus.IN_ROUND) {
+            throw new IllegalStateException("Round already in progress");
         }
 
-        int startingPlayerIndex =
-                (game.getCurrentRound() - 1)
-                        % game.getPlayers().size();
+        game.setCurrentRound(game.getCurrentRound() + 1);
 
-        Player startingPlayer =
-                game.getPlayers().get(startingPlayerIndex);
+        resetRoundState(game);
+
+        int startingPlayerIndex = getStartingPlayerIndex(game);
 
         game.setCurrentPlayerId(
-                startingPlayer.getId()
+                game.getPlayers().get(startingPlayerIndex).getId()
         );
 
         game.setDealerId(
-                startingPlayer.getId()
+                game.getPlayers().get(startingPlayerIndex).getId()
         );
 
-        game.setStatus(
-                GameStatus.IN_ROUND
-        );
+        game.setStatus(GameStatus.IN_ROUND);
+        game.setInitialDealCardsDealtCount(0);
+        game.setInitialDealPaused(false);
+
+                if (game.getDeck() == null) {
+                        game.setDeck(new ArrayList<>());
+                }
+
+                if (game.getDeck().isEmpty()) {
+                        replenishDeckIfNeeded(game);
+
+                        if (game.getDeck().isEmpty()) {
+                                // addAll into the managed collection instead of replacing the reference
+                                game.getDeck().addAll(deckService.buildDeck());
+                        }
+                }
+
+        dealInitialCards(game);
 
         return gameRepository.save(game);
     }
 
     private void dealInitialCards(Game game) {
 
-        int startIndex = getStartingPlayerIndex(game);
-
         int totalPlayers = game.getPlayers().size();
 
-        for (int i = 0; i < totalPlayers; i++) {
+        int dealtCount = game.getInitialDealCardsDealtCount() == null
+                ? 0
+                : game.getInitialDealCardsDealtCount();
+
+        if (dealtCount >= totalPlayers) {
+            game.setInitialDealCardsDealtCount(null);
+            game.setInitialDealPaused(false);
+            return;
+        }
+
+        while (dealtCount < totalPlayers) {
 
             int playerIndex =
-                    (startIndex + i) % totalPlayers;
+                    (getStartingPlayerIndex(game) + dealtCount) % totalPlayers;
 
             Player player =
                     game.getPlayers().get(playerIndex);
 
-            Card card =
-                    game.getDeck().remove(0);
+            Card card = drawTopCard(game);
 
             player.getHand().add(card);
+
+            if (card instanceof ActionCard actionCard
+                    && (actionCard.getType() == CardType.FREEZE
+                    || actionCard.getType() == CardType.FLIP_THREE)) {
+
+                player.getHand().remove(player.getHand().size() - 1);
+
+                createPendingAction(
+                        game,
+                        card,
+                        player.getId(),
+                        actionCard.getType() == CardType.FLIP_THREE ? 3 : 0
+                );
+
+                game.setInitialDealCardsDealtCount(dealtCount + 1);
+                game.setInitialDealPaused(true);
+
+                return;
+            }
+
+            player.setRoundScore(
+                    scoreService.calculateScore(player)
+            );
+
+            dealtCount++;
+
+            game.setInitialDealCardsDealtCount(dealtCount);
         }
+
+        game.setInitialDealCardsDealtCount(null);
+                game.setInitialDealPaused(false);
     }
 
     private int getStartingPlayerIndex(Game game) {
@@ -153,6 +220,8 @@ public class GameServiceImpl implements GameService {
                         )
                 );
 
+        ensureGameIsNotFinished(game);
+
         if (!playerId.equals(
                 game.getCurrentPlayerId()
         )) {
@@ -171,28 +240,390 @@ public class GameServiceImpl implements GameService {
                         .findFirst()
                         .orElseThrow();
 
-        Card card =
-                game.getDeck().remove(0);
+        Card card = drawTopCard(game);
 
-        player.getHand().add(card);
+        if (card instanceof ActionCard actionCard
+                && (actionCard.getType() == CardType.FREEZE
+                || actionCard.getType() == CardType.FLIP_THREE)) {
 
-        player.setRoundScore(
-                scoreService.calculateScore(player)
-        );
-
-
-        if (isBusted(player)) {
-
-            player.setStatus(
-                    PlayerStatus.BUSTED
+            createPendingAction(
+                    game,
+                    card,
+                    playerId,
+                    actionCard.getType() == CardType.FLIP_THREE ? 3 : 0
             );
+
+            return gameRepository.save(game);
         }
+
+        applyDrawnCard(game, player, card);
 
         advanceTurn(game);
 
         checkRoundEnd(game);
 
         return gameRepository.save(game);
+    }
+
+    @Override
+    public Game applyAction(
+            UUID gameId,
+            UUID targetPlayerId
+    ) {
+
+        Game game = getGameById(gameId);
+
+        ensureGameIsNotFinished(game);
+
+        PendingAction pendingAction =
+                game.getPendingAction();
+
+        if (pendingAction == null) {
+
+            throw new IllegalArgumentException(
+                    "No pending action"
+            );
+        }
+
+        switch (pendingAction.getType()) {
+
+            case FREEZE -> applyFreeze(
+                    game,
+                    targetPlayerId
+            );
+
+            case FLIP_THREE -> applyFlipThree(game, targetPlayerId);
+
+            default -> throw new IllegalArgumentException(
+                    "Unsupported action"
+            );
+        }
+
+                if (game.getPendingAction() == pendingAction && pendingAction.getCard() != null) {
+                        discardCard(game, pendingAction.getCard());
+                }
+
+        if (game.getPendingAction() == pendingAction) {
+            game.setPendingAction(null);
+
+                        if (game.isInitialDealPaused()) {
+                                dealInitialCards(game);
+
+                                if (game.getPendingAction() != null) {
+                                        return gameRepository.save(game);
+                                }
+
+                                checkRoundEnd(game);
+
+                                return gameRepository.save(game);
+                        }
+
+                        advanceTurn(game);
+        }
+
+        checkRoundEnd(game);
+
+        return gameRepository.save(game);
+    }
+
+    private void applyFreeze(
+            Game game,
+            UUID targetPlayerId
+    ) {
+
+        Player target =
+                findPlayer(game, targetPlayerId);
+
+        if (target.getStatus() != PlayerStatus.ACTIVE) {
+
+            throw new IllegalArgumentException(
+                    "Target player is not active"
+            );
+        }
+
+        target.setStatus(
+                PlayerStatus.STAYED
+        );
+
+        target.setTotalScore(
+                target.getTotalScore() + target.getRoundScore()
+        );
+
+        target.setRoundScore(0);
+    }
+
+    private void applyFlipThree(
+            Game game,
+            UUID targetPlayerId
+    ) {
+
+        Player target =
+                findPlayer(game, targetPlayerId);
+
+        if (target.getStatus() != PlayerStatus.ACTIVE) {
+
+            throw new IllegalArgumentException(
+                    "Target player is not active"
+            );
+        }
+
+        PendingAction currentPendingAction = game.getPendingAction();
+
+        int remainingCards = currentPendingAction.getRemainingCards() == null
+                ? 3
+                : currentPendingAction.getRemainingCards();
+
+        while (remainingCards > 0
+                && target.getStatus() == PlayerStatus.ACTIVE
+                && game.getStatus() != GameStatus.ROUND_END
+                && !game.getDeck().isEmpty()) {
+
+                        Card card = drawTopCard(game);
+
+            if (card instanceof ActionCard actionCard
+                    && (actionCard.getType() == CardType.FREEZE
+                    || actionCard.getType() == CardType.FLIP_THREE)) {
+
+                                discardCard(game, currentPendingAction.getCard());
+
+                createPendingAction(
+                        game,
+                        card,
+                        target.getId(),
+                        actionCard.getType() == CardType.FLIP_THREE ? 3 : 0
+                );
+
+                                return;
+            }
+
+            applyDrawnCard(game, target, card);
+
+            remainingCards--;
+
+            if (game.getStatus() == GameStatus.ROUND_END
+                    || target.getStatus() != PlayerStatus.ACTIVE) {
+                break;
+            }
+        }
+
+                if (game.getPendingAction() == currentPendingAction) {
+                                currentPendingAction.setRemainingCards(remainingCards);
+                }
+    }
+
+        private void createPendingAction(
+                        Game game,
+                        Card card,
+                        UUID sourcePlayerId,
+                        int remainingCards
+        ) {
+
+                PendingAction pendingAction = new PendingAction();
+                pendingAction.setId(null);
+                pendingAction.setType(card.getType());
+                pendingAction.setCard(card);
+                pendingAction.setSourcePlayerId(sourcePlayerId);
+                pendingAction.setRemainingCards(remainingCards);
+
+                game.setPendingAction(pendingAction);
+        }
+
+        private void resetRoundState(Game game) {
+
+                discardHands(game);
+
+                game.setPendingAction(null);
+
+                for (Player player : game.getPlayers()) {
+
+                        player.setRoundScore(0);
+                        player.setFlippedSeven(false);
+                        player.setStatus(PlayerStatus.ACTIVE);
+                }
+        }
+
+        private void discardHands(Game game) {
+
+                ensureDiscardPile(game);
+
+                for (Player player : game.getPlayers()) {
+
+                        if (!player.getHand().isEmpty()) {
+                                game.getDiscardPile().addAll(player.getHand());
+                                player.getHand().clear();
+                        }
+                }
+
+                if (game.getPendingAction() != null && game.getPendingAction().getCard() != null) {
+                        discardCard(game, game.getPendingAction().getCard());
+                }
+        }
+
+        private void replenishDeckIfNeeded(Game game) {
+
+                if (game.getDiscardPile() == null || game.getDiscardPile().isEmpty()) {
+                        return;
+                }
+
+                game.getDeck().addAll(game.getDiscardPile());
+                game.getDiscardPile().clear();
+                Collections.shuffle(game.getDeck());
+        }
+
+        private Card drawTopCard(Game game) {
+
+                if (game.getDeck() == null || game.getDeck().isEmpty()) {
+                        replenishDeckIfNeeded(game);
+                }
+
+                if (game.getDeck() == null || game.getDeck().isEmpty()) {
+                        throw new IllegalStateException("No cards available");
+                }
+
+                return game.getDeck().remove(0);
+        }
+
+        private void discardCard(Game game, Card card) {
+
+                if (card == null) {
+                        return;
+                }
+
+                ensureDiscardPile(game);
+                game.getDiscardPile().add(card);
+        }
+
+        private void ensureDiscardPile(Game game) {
+
+                if (game.getDiscardPile() == null) {
+                        game.setDiscardPile(new ArrayList<>());
+                }
+        }
+
+    private void applyDrawnCard(
+            Game game,
+            Player player,
+            Card card
+    ) {
+
+                if (card instanceof ActionCard actionCard
+                                && actionCard.getType() == CardType.SECOND_CHANCE) {
+
+                        boolean hasSecondChance = player.getHand().stream().anyMatch(c ->
+                                        c instanceof ActionCard ac && ac.getType() == CardType.SECOND_CHANCE
+                        );
+
+                        if (!hasSecondChance) {
+                                // player receives their single allowed second chance
+                                player.getHand().add(card);
+                        } else {
+                                // player already has one: transfer to next eligible player
+                                Player recipient = findRecipientForSecondChance(game, player);
+
+                                if (recipient != null) {
+                                        recipient.getHand().add(card);
+                                } else {
+                                        // no eligible recipient found, discard the card
+                                        discardCard(game, card);
+                                }
+                        }
+
+                } else {
+                        player.getHand().add(card);
+                }
+
+        player.setRoundScore(
+                scoreService.calculateScore(player)
+        );
+
+        if (isBusted(player)) {
+
+                        if (consumeSecondChanceIfNeeded(player)) {
+
+                                Card removedCard = removeLastCard(player);
+                                Card removedSecondChanceCard = removeSecondChanceCard(player);
+
+                                // record automatic event for API so frontend can show what happened
+                                game.setLastAutomaticEvent(new AutomaticEvent(
+                                        AutomaticEvent.Type.SECOND_CHANCE_CONSUMED,
+                                        player.getId(),
+                                        removedCard,
+                                        removedSecondChanceCard
+                                ));
+
+                                discardCard(game, removedCard);
+                                discardCard(game, removedSecondChanceCard);
+
+                                player.setRoundScore(
+                                        scoreService.calculateScore(player)
+                                );
+
+                        } else {
+
+                                player.setStatus(
+                                                PlayerStatus.BUSTED
+                                );
+                        }
+        }
+    }
+
+        private Card removeSecondChanceCard(Player player) {
+
+        for (int i = 0; i < player.getHand().size(); i++) {
+
+            Card card = player.getHand().get(i);
+
+            if (card instanceof ActionCard actionCard
+                    && actionCard.getType() == CardType.SECOND_CHANCE) {
+
+                                return player.getHand().remove(i);
+            }
+        }
+
+                return null;
+    }
+
+    private boolean consumeSecondChanceIfNeeded(Player player) {
+                // Consume second chance based solely on the presence of the SECOND_CHANCE card
+                boolean hasCard = player.getHand().stream().anyMatch(c ->
+                                c instanceof ActionCard ac && ac.getType() == CardType.SECOND_CHANCE
+                );
+
+                return hasCard;
+    }
+
+        private Player findRecipientForSecondChance(Game game, Player from) {
+
+                int idx = game.getPlayers().indexOf(from);
+                if (idx == -1) {
+                        return null;
+                }
+
+                int total = game.getPlayers().size();
+
+                for (int i = 1; i < total; i++) {
+                        Player candidate = game.getPlayers().get((idx + i) % total);
+
+                        // only give to ACTIVE players who don't already have a second chance card
+                        boolean hasSecond = candidate.getHand().stream().anyMatch(c ->
+                                        c instanceof ActionCard ac && ac.getType() == CardType.SECOND_CHANCE
+                        );
+
+                        if (candidate.getStatus() == PlayerStatus.ACTIVE && !hasSecond) {
+                                return candidate;
+                        }
+                }
+
+                return null;
+        }
+
+        private Card removeLastCard(Player player) {
+
+        if (!player.getHand().isEmpty()) {
+                        return player.getHand().remove(player.getHand().size() - 1);
+        }
+
+                return null;
     }
 
 
@@ -245,6 +676,8 @@ public class GameServiceImpl implements GameService {
 
         Game game = getGameById(gameId);
 
+                ensureGameIsNotFinished(game);
+
         if (!playerId.equals(game.getCurrentPlayerId())) {
             throw new IllegalArgumentException("Not your turn");
         }
@@ -278,6 +711,27 @@ public class GameServiceImpl implements GameService {
 
     private void checkRoundEnd(Game game) {
 
+        boolean flipSevenReached =
+                game.getPlayers()
+                        .stream()
+                        .anyMatch(scoreService::hasFlip7);
+
+        if (flipSevenReached) {
+
+            game.getPlayers()
+                    .stream()
+                    .filter(scoreService::hasFlip7)
+                    .forEach(player -> player.setFlippedSeven(true));
+
+            game.setStatus(
+                    GameStatus.ROUND_END
+            );
+
+            calculateRoundScores(game);
+
+            return;
+        }
+
         boolean activePlayers =
                 game.getPlayers()
                         .stream()
@@ -297,19 +751,68 @@ public class GameServiceImpl implements GameService {
     }
 
     private void calculateRoundScores(Game game) {
+                // Persist round scores in roundHistory
+                RoundResult roundResult = new RoundResult();
+                roundResult.setRoundNumber(game.getCurrentRound());
+                roundResult.setGame(game);
 
-        for (Player player : game.getPlayers()) {
+                for (Player player : game.getPlayers()) {
 
-            if (player.getStatus()
-                    != PlayerStatus.BUSTED) {
+                        if (player.getStatus() != PlayerStatus.BUSTED) {
+                                player.setTotalScore(
+                                                player.getTotalScore() + player.getRoundScore()
+                                );
+                        }
 
-                player.setTotalScore(
-                        player.getTotalScore()
-                                + player.getRoundScore()
-                );
-            }
-        }
+                        RoundPlayerScore rps = RoundPlayerScore.builder()
+                                        .playerId(player.getId())
+                                        .playerName(player.getName())
+                                        .score(player.getRoundScore())
+                                        .busted(player.getStatus() == PlayerStatus.BUSTED)
+                                        .flippedSeven(player.isFlippedSeven())
+                                        .build();
+
+                        roundResult.getScores().add(rps);
+                }
+
+                if (game.getRoundHistory() == null) {
+                        game.setRoundHistory(new java.util.ArrayList<>());
+                }
+
+                game.getRoundHistory().add(roundResult);
+
+                if (hasWinner(game)) {
+                        game.setWinner(determineWinner(game));
+                        game.setStatus(GameStatus.GAME_OVER);
+                }
     }
+
+        private void ensureGameIsNotFinished(Game game) {
+
+                if (game.getStatus() == GameStatus.GAME_OVER) {
+                        throw new IllegalStateException("Game is already finished");
+                }
+        }
+
+
+        private boolean hasWinner(Game game) {
+
+                return game.getPlayers().stream()
+                        .anyMatch(player -> player.getTotalScore() >= 200);
+        }
+
+        private Winner determineWinner(Game game) {
+
+                Player winnerPlayer = game.getPlayers().stream()
+                        .max(java.util.Comparator.comparingInt(Player::getTotalScore))
+                        .orElseThrow(() -> new IllegalStateException("No players in game"));
+
+                return new Winner(
+                        winnerPlayer.getId(),
+                        winnerPlayer.getName(),
+                        winnerPlayer.getTotalScore()
+                );
+        }
 
 
 

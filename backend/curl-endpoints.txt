@@ -1,0 +1,232 @@
+Flip7 backend - API guide for frontend
+
+Base URL
+http://localhost:8080
+
+This file is a practical guide for the frontend team. It explains the API flow, what each endpoint does, how to read the response, and what to do when the backend returns a playable event.
+
+Placeholders
+- `{GAME_ID}`: game UUID returned by `POST /games`
+- `{PLAYER_ID}`: player UUID from the current game state
+- `{TARGET_PLAYER_ID}`: player UUID chosen to resolve a pending action
+
+Core idea
+- The frontend should always treat the API response as the source of truth.
+- After every mutating call, inspect the returned `GameResponse` and decide the next UI step.
+- The two important response markers are:
+  - `pendingAction`: there is an effect waiting for user resolution before play can continue.
+  - `lastAutomaticEvent`: the backend already resolved something automatically and the frontend should only display what happened.
+
+How to read the game response
+- `status`: tells you whether the game is waiting, in round, in round end, or finished.
+- `currentRound`: round number.
+- `currentPlayerId`: whose turn it is right now.
+- `players[]`: current visible state of each player.
+  - `cards[]` shows the visible hand for that player.
+  - If a `SECOND_CHANCE` card is in `cards[]`, that player has one available second chance.
+- `pendingAction`: present when the game is paused waiting for a decision.
+- `lastAutomaticEvent`: present when the backend resolved an automatic event and the frontend should show feedback.
+
+Game flow rules
+- A round begins with `POST /games/{GAME_ID}/rounds/start`.
+- The round deals cards in turn order starting from the round starter.
+- If an action card appears during the opening deal or a draw, the backend pauses the flow and exposes `pendingAction`.
+- `SECOND_CHANCE` is handled automatically by the backend.
+- When the game reaches `GAME_OVER`, only read-only endpoints should be used.
+
+Recommended frontend loop
+1. Call `GET /games/{GAME_ID}` to render the current state.
+2. If `pendingAction` exists, block normal play UI and ask the user to resolve it.
+3. If `lastAutomaticEvent` exists, show a notification or animation, then continue from the updated game state.
+4. If the game is in progress and it is the current player turn, allow `draw` or `stay`.
+5. After each action, replace local state with the API response.
+
+1) Create a game
+
+curl -X POST "http://localhost:8080/games" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"playerNames\":[\"Alice\",\"Bob\"]}"
+
+What it does
+- Creates the game and its players.
+- Returns the new `gameId`.
+- No round has started yet.
+
+Frontend should do next
+- Store the returned `gameId`.
+- Call `GET /games/{GAME_ID}` or `POST /games/{GAME_ID}/rounds/start` depending on the screen flow.
+
+2) Get game by id
+
+curl -X GET "http://localhost:8080/games/{GAME_ID}"
+
+Use it to refresh the complete state:
+- current round
+- turn owner
+- player hands
+- `pendingAction`
+- `lastAutomaticEvent`
+- round history
+- winner when the game is over
+
+Frontend guidance
+- This endpoint is the safest place to resync after any action.
+- If a page reload happens, this is the endpoint to restore the UI.
+
+3) Start round
+
+curl -X POST "http://localhost:8080/games/{GAME_ID}/rounds/start"
+
+What it does
+- Advances the game to the next round.
+- Deals one initial card to each player in turn order.
+- If an action card appears during the opening deal, the response may include `pendingAction`.
+
+Frontend behavior
+- If `pendingAction` is null, continue normal play.
+- If `pendingAction` exists, show the resolution UI immediately and do not allow draw/stay until it is resolved.
+
+Typical cases during opening deal
+- `FREEZE`: the frontend must let the user choose a target active player.
+- `FLIP_THREE`: the frontend must let the user choose a target active player.
+- `SECOND_CHANCE`: the backend handles it automatically; the frontend should read `lastAutomaticEvent` if present.
+
+4) Draw card
+
+curl -X POST "http://localhost:8080/games/{GAME_ID}/draw" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"playerId\":\"{PLAYER_ID}\"}"
+
+Use this when the current player wants another card.
+
+Possible outcomes
+- Numeric or modifier card:
+  - the hand updates
+  - the score updates
+  - the turn usually advances
+- `FREEZE`:
+  - response includes `pendingAction`
+  - the game waits for a target player selection
+- `FLIP_THREE`:
+  - response includes `pendingAction`
+  - the game waits for a target player selection
+- `SECOND_CHANCE`:
+  - the card is applied automatically
+  - if the player already had one, the backend transfers the extra second chance to another active player
+  - the backend may return `lastAutomaticEvent` so the frontend can show what changed
+
+Frontend behavior after draw
+- Always inspect `pendingAction` first.
+- If `pendingAction` exists, stop normal gameplay UI and ask for the target.
+- If `lastAutomaticEvent` exists, show a brief event summary, then continue.
+
+5) Stay
+
+curl -X POST "http://localhost:8080/games/{GAME_ID}/stay" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"playerId\":\"{PLAYER_ID}\"}"
+
+Use this when the current player stops drawing.
+
+Frontend behavior
+- Mark the player as stayed in the UI after the response.
+- The turn may move to the next active player.
+- If the response indicates the round ended or the game finished, refresh the state with `GET /games/{GAME_ID}`.
+
+6) Apply pending action
+
+curl -X POST "http://localhost:8080/games/{GAME_ID}/actions" ^
+  -H "Content-Type: application/json" ^
+  -d "{\"targetPlayerId\":\"{TARGET_PLAYER_ID}\"}"
+
+Use this only when `pendingAction` is present.
+
+Supported actions
+- `FREEZE`
+- `FLIP_THREE`
+
+Target rules
+- The target must be an `ACTIVE` player.
+- The frontend should use `pendingAction.targetOptions` to build the valid target list.
+- Do not let the user select a player outside that list.
+
+Frontend behavior after resolution
+- Clear the action UI.
+- Check whether a new `pendingAction` was chained.
+- Check whether `lastAutomaticEvent` was returned.
+- Refresh the game view from the response.
+
+7) List finished games
+
+curl -X GET "http://localhost:8080/games/finished"
+
+Use this to show a lobby or archive of completed matches.
+
+Returns
+- finished game summaries
+- winner information
+
+Frontend guidance
+- Use it for a finished-games list screen.
+- Do not use it for live gameplay state.
+
+8) Get finished game detail
+
+curl -X GET "http://localhost:8080/games/finished/{GAME_ID}"
+
+Use this to show the final result screen.
+
+Returns
+- final winner
+- players and final scores
+- round history
+
+Frontend guidance
+- This is the detail screen after the game ends.
+- If the game is already `GAME_OVER`, this endpoint is the one to use for the final summary.
+
+How the frontend should react to events
+
+When `pendingAction` exists
+- Pause the normal turn flow.
+- Show a modal, drawer, or overlay with the valid targets.
+- Use `pendingAction.type` to choose the UI:
+  - `FREEZE`: explain that one player will be frozen.
+  - `FLIP_THREE`: explain that one player will draw three cards.
+- Use `pendingAction.targetOptions` to build the selection list.
+- After the user selects a target, call `POST /games/{GAME_ID}/actions`.
+
+When `lastAutomaticEvent` exists
+- Show an informational toast, banner, or animation.
+- This is not a user decision point.
+- It is only feedback for something the backend already resolved.
+- Example: if the backend consumed a `SECOND_CHANCE`, the frontend can show that a saved player was rescued and which cards were involved.
+
+When the player has `SECOND_CHANCE` in `cards[]`
+- The player can survive one bust caused by duplicate numeric values.
+- The frontend should show it as an active shield or saved card.
+- If the player receives another `SECOND_CHANCE`, the backend will transfer it to another active player.
+
+Suggested full gameplay loop
+
+1. Create a game.
+2. Start the first round.
+3. Read the response.
+4. If `pendingAction` exists, resolve it.
+5. If `lastAutomaticEvent` exists, show it and continue.
+6. On the current player turn, choose `draw` or `stay`.
+7. After every action, update the UI from the response.
+8. Repeat until `status` becomes `GAME_OVER`.
+9. Open the finished-game detail screen.
+
+Practical rules for the frontend
+- Never assume the client state is correct after an action; always trust the backend response.
+- Never allow `draw`, `stay`, or `actions` if the game is finished.
+- If the response includes both `pendingAction` and `lastAutomaticEvent`, treat `pendingAction` as the blocking item and `lastAutomaticEvent` as informational feedback.
+- If a card or player state seems ambiguous, re-fetch the game by id.
+
+Notes
+- Replace placeholders with real UUID values from previous responses.
+- On Windows PowerShell, these commands can be copied as-is.
+- The backend already enforces turn order and game-state rules.
+- Business rule violations return HTTP errors that the frontend should handle gracefully.
