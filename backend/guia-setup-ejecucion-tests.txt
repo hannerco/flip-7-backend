@@ -1,0 +1,99 @@
+Flip7 backend - guia de setup, ejecucion y pruebas
+
+Proyecto
+- Backend Java 25 con Spring Boot 3.5.3
+- Maven como gestor de build
+- Base de datos H2 en memoria para desarrollo y pruebas
+- Tests unitarios y de integracion con JUnit 5, Mockito y MockMvc
+
+Requisitos previos
+- Tener instalado Java 25 o una version compatible
+- Tener instalado Maven
+- Usar Windows PowerShell o una terminal equivalente
+- Abrir el proyecto desde la carpeta backend
+
+Ubicacion del proyecto
+- Carpeta raiz del backend: backend
+- Archivo principal: src/main/java/edu/unac/Main.java
+
+1) Preparar el proyecto
+
+Abrir una terminal en la carpeta backend y verificar que Maven funciona:
+
+```powershell
+\flip-7-backend\backend"
+mvn -v
+```
+
+Si el comando responde con la version de Maven y Java, el entorno esta listo.
+
+2) Levantar la aplicacion
+
+Para ejecutar el backend en modo desarrollo:
+
+```powershell
+\flip-7-backend\backend"
+mvn spring-boot:run
+```
+
+La aplicacion va a quedar disponible en:
+- http://localhost:8080
+
+Comportamiento de la base de datos
+- Se usa H2 en memoria.
+- La base se crea sola al iniciar la app.
+- La configuracion de desarrollo esta en src/main/resources/application.properties.
+- Al detener la aplicacion, los datos se pierden porque no es una base persistente.
+
+3) Probar la aplicacion
+
+Para correr todos los tests:
+
+```powershell
+\flip-7-backend\backend"
+mvn clean test
+```
+
+Este comando ejecuta:
+- tests unitarios de service
+- tests de mapper
+- tests de controller como integracion con Spring Boot y MockMvc
+
+4) Orden recomendado de verificacion
+
+Si queres comprobar que todo funciona de punta a punta:
+1. Ejecutar `mvn clean test`.
+2. Levantar la app con `mvn spring-boot:run`.
+3. Probar los endpoints con `curl-endpoints.txt` o con `flip7-game-flow.http`.
+4. Crear una partida.
+5. Empezar una ronda.
+6. Verificar que el front reaccione a `pendingAction` y `lastAutomaticEvent`.
+
+5) Guía de uso de la API
+
+Archivo de referencia para el frontend:
+- curl-endpoints.txt
+
+Archivo con flujos HTTP para probar en VS Code:
+- flip7-game-flow.http
+
+Reglas importantes de la API
+- `pendingAction` indica que la partida espera una resolucion manual antes de seguir.
+- `lastAutomaticEvent` indica que el backend ya resolvio automaticamente un evento y el front solo debe mostrarlo.
+- Si el juego esta en `GAME_OVER`, solo deben usarse endpoints de lectura.
+
+
+7) Problemas comunes
+
+- Si Maven no se reconoce, revisar la variable PATH.
+- Si Java no coincide con la version del proyecto, ajustar JAVA_HOME.
+- Si un test falla por estado previo, volver a ejecutar `mvn clean test`.
+- Si el puerto 8080 esta ocupado, cerrar el proceso que lo usa antes de levantar la app.
+
+8) Resumen rapido
+
+- Instalar Java y Maven.
+- Entrar a la carpeta backend.
+- Correr `mvn clean test`.
+- Correr `mvn spring-boot:run`.
+- Probar la API con `curl-endpoints.txt` o `flip7-game-flow.http`.
