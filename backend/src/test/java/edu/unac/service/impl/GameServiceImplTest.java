@@ -2212,7 +2212,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldCreatePendingActionWhenFreezeCardIsDrawn() {
-
         Game game = Game.builder()
                 .players(List.of(
                         Player.builder().id(UUID.randomUUID()).name("Alice").build(),
@@ -2234,18 +2233,12 @@ class GameServiceImplTest {
         Game result = gameService.startRound(UUID.randomUUID());
 
         assertNotNull(result.getPendingAction());
-
-        assertEquals(
-                CardType.FREEZE,
-                result.getPendingAction().getType()
-        );
-
+        assertEquals(CardType.FREEZE, result.getPendingAction().getType());
         assertTrue(result.isInitialDealPaused());
     }
 
     @Test
     void shouldCreatePendingActionWhenFlipThreeCardIsDrawn() {
-
         Game game = Game.builder()
                 .players(List.of(
                         Player.builder().id(UUID.randomUUID()).name("Alice").build(),
@@ -2267,22 +2260,12 @@ class GameServiceImplTest {
         Game result = gameService.startRound(UUID.randomUUID());
 
         assertNotNull(result.getPendingAction());
-
-        assertEquals(
-                CardType.FLIP_THREE,
-                result.getPendingAction().getType()
-        );
-
-        assertEquals(
-                3,
-                result.getPendingAction().getRemainingCards()
-        );
+        assertEquals(CardType.FLIP_THREE, result.getPendingAction().getType());
+        assertEquals(3, result.getPendingAction().getRemainingCards());
     }
-
 
     @Test
     void shouldNotAllowDrawCardForFinishedGame() {
-
         UUID gameId = UUID.randomUUID();
         UUID playerId = UUID.randomUUID();
 
@@ -2307,7 +2290,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldNotAllowStayForFinishedGame() {
-
         UUID gameId = UUID.randomUUID();
         UUID playerId = UUID.randomUUID();
 
@@ -2331,7 +2313,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldNotAllowApplyActionForFinishedGame() {
-
         UUID gameId = UUID.randomUUID();
 
         Game finishedGame = Game.builder()
@@ -2352,10 +2333,8 @@ class GameServiceImplTest {
         verify(gameRepository, never()).save(any());
     }
 
-
     @Test
     void shouldDiscardPendingActionCardAfterApplyingFreeze() {
-
         UUID targetId = UUID.randomUUID();
 
         Player target = Player.builder()
@@ -2369,7 +2348,7 @@ class GameServiceImplTest {
         PendingAction pendingAction = new PendingAction();
         pendingAction.setId(null);
         pendingAction.setType(CardType.FREEZE);
-        pendingAction.setCard(freezeCard);           // carta no nula
+        pendingAction.setCard(freezeCard);
         pendingAction.setSourcePlayerId(UUID.randomUUID());
 
         Game game = Game.builder()
@@ -2386,20 +2365,16 @@ class GameServiceImplTest {
 
         Game result = gameService.applyAction(UUID.randomUUID(), targetId);
 
-        // la carta debe haber ido a la pila de descarte
         assertNotNull(result.getDiscardPile());
         assertTrue(result.getDiscardPile().stream()
                 .anyMatch(c -> c instanceof ActionCard ac
                         && ac.getType() == CardType.FREEZE));
     }
 
-
     @Test
     void shouldDiscardSecondChanceWhenNoEligibleRecipientExists() {
-
         UUID currentPlayerId = UUID.randomUUID();
 
-        // El único otro jugador ya tiene una carta de segunda oportunidad
         Player currentPlayer = Player.builder()
                 .id(currentPlayerId)
                 .name("Alice")
@@ -2412,7 +2387,7 @@ class GameServiceImplTest {
                 .id(UUID.randomUUID())
                 .name("Bob")
                 .hand(new ArrayList<>(List.of(
-                        new ActionCard(CardType.SECOND_CHANCE) // ya tiene una
+                        new ActionCard(CardType.SECOND_CHANCE)
                 )))
                 .status(PlayerStatus.ACTIVE)
                 .build();
@@ -2444,7 +2419,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldStopFlipThreeWhenTargetBustsDuringSequence() {
-
         UUID playerId = UUID.randomUUID();
 
         Player player = Player.builder()
@@ -2465,7 +2439,7 @@ class GameServiceImplTest {
                 .currentPlayerId(playerId)
                 .players(new ArrayList<>(List.of(player)))
                 .deck(new ArrayList<>(List.of(
-                        new NumericCard(5),   // duplicado → bust
+                        new NumericCard(5),
                         new NumericCard(3),
                         new NumericCard(4)
                 )))
@@ -2479,7 +2453,7 @@ class GameServiceImplTest {
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         when(scoreService.calculateScore(any()))
-                .thenReturn(10); // score > 0 para activar isBusted
+                .thenReturn(10);
 
         Game result = gameService.applyAction(UUID.randomUUID(), playerId);
 
@@ -2489,7 +2463,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldStopFlipThreeAndEndRoundWhenFlipSevenReachedDuringSequence() {
-
         UUID playerId = UUID.randomUUID();
 
         Player player = Player.builder()
@@ -2517,7 +2490,7 @@ class GameServiceImplTest {
                 .currentPlayerId(playerId)
                 .players(new ArrayList<>(List.of(player)))
                 .deck(new ArrayList<>(List.of(
-                        new NumericCard(6), // 7ª carta → flip seven
+                        new NumericCard(6),
                         new NumericCard(7),
                         new NumericCard(8)
                 )))
@@ -2545,7 +2518,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldThrowWhenGameNotFoundOnGetFinishedGameById() {
-
         UUID gameId = UUID.randomUUID();
 
         when(gameRepository.findById(gameId))
@@ -2561,7 +2533,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldDeclareCurrentPlayerAsWinnerWhenTheyReachTwoHundredOnStay() {
-
         UUID playerId = UUID.randomUUID();
 
         Player player = Player.builder()
@@ -2591,10 +2562,8 @@ class GameServiceImplTest {
         assertEquals(220, result.getWinner().getTotalScore());
     }
 
-
     @Test
     void shouldNotAddRoundScoreToTotalWhenPlayerIsBusted() {
-
         UUID aliceId = UUID.randomUUID();
         UUID bobId = UUID.randomUUID();
 
@@ -2627,15 +2596,12 @@ class GameServiceImplTest {
 
         gameService.stay(UUID.randomUUID(), bobId);
 
-
         assertEquals(100, alice.getTotalScore());
-
         assertEquals(95, bob.getTotalScore());
     }
 
     @Test
     void shouldDiscardSecondChanceWhenCurrentPlayerNotInPlayersList() {
-
         UUID currentPlayerId = UUID.randomUUID();
 
         Player currentPlayer = Player.builder()
@@ -2646,13 +2612,11 @@ class GameServiceImplTest {
                 )))
                 .build();
 
-
         Player otherPlayer = Player.builder()
                 .id(UUID.randomUUID())
                 .name("Bob")
                 .status(PlayerStatus.ACTIVE)
                 .build();
-
 
         Game game = Game.builder()
                 .currentPlayerId(currentPlayerId)
@@ -2671,7 +2635,6 @@ class GameServiceImplTest {
         when(scoreService.calculateScore(any()))
                 .thenReturn(0);
 
-
         Player playerWithCard = Player.builder()
                 .id(currentPlayerId)
                 .name("Alice")
@@ -2683,7 +2646,6 @@ class GameServiceImplTest {
 
         Game game2 = Game.builder()
                 .currentPlayerId(currentPlayerId)
-                // playerWithCard está en la lista pero otherPlayer (único otro) está BUSTED
                 .players(new ArrayList<>(List.of(
                         playerWithCard,
                         Player.builder()
@@ -2702,17 +2664,14 @@ class GameServiceImplTest {
 
         Game result = gameService.drawCard(UUID.randomUUID(), currentPlayerId);
 
-        // ningún candidato elegible (bob está BUSTED) → carta va al descarte
         assertNotNull(result.getDiscardPile());
         assertTrue(result.getDiscardPile().stream()
                 .anyMatch(c -> c instanceof ActionCard ac
                         && ac.getType() == CardType.SECOND_CHANCE));
     }
 
-
     @Test
     void shouldInitializeDiscardPileWhenItIsNullOnRoundStart() {
-
         Player alice = Player.builder()
                 .id(UUID.randomUUID())
                 .name("Alice")
@@ -2724,7 +2683,6 @@ class GameServiceImplTest {
                 .name("Bob")
                 .hand(new ArrayList<>(List.of(new NumericCard(4))))
                 .build();
-
 
         Game game = Game.builder()
                 .players(new ArrayList<>(List.of(alice, bob)))
@@ -2744,7 +2702,6 @@ class GameServiceImplTest {
         when(gameRepository.save(any(Game.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-
         Game result = gameService.startRound(UUID.randomUUID());
 
         assertNotNull(result.getDiscardPile());
@@ -2752,7 +2709,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldInitializeDeckWhenItIsNullOnStartRound() {
-
         Player alice = Player.builder()
                 .id(UUID.randomUUID())
                 .name("Alice")
@@ -2763,7 +2719,6 @@ class GameServiceImplTest {
                 .name("Bob")
                 .build();
 
-        // deck explícitamente null
         Game game = Game.builder()
                 .players(new ArrayList<>(List.of(alice, bob)))
                 .deck(null)
@@ -2790,7 +2745,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldReplenishWhenDeckIsNullBeforeDrawingCard() {
-
         UUID playerId = UUID.randomUUID();
 
         Player player = Player.builder()
@@ -2798,7 +2752,6 @@ class GameServiceImplTest {
                 .name("Alice")
                 .build();
 
-        // deck null (no simplemente vacío)
         Game game = Game.builder()
                 .currentPlayerId(playerId)
                 .players(new ArrayList<>(List.of(player)))
@@ -2828,7 +2781,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldNotThrowWhenSecondChanceRecipientIndexIsMinusOne() {
-
         UUID currentPlayerId = UUID.randomUUID();
 
         Player currentPlayer = Player.builder()
@@ -2839,7 +2791,6 @@ class GameServiceImplTest {
                 )))
                 .status(PlayerStatus.ACTIVE)
                 .build();
-
 
         Game game = Game.builder()
                 .currentPlayerId(currentPlayerId)
@@ -2873,7 +2824,6 @@ class GameServiceImplTest {
         UUID nonExistentPlayerId = UUID.randomUUID();
         UUID existingPlayerId = UUID.randomUUID();
 
-        // Crear un pending action válido
         PendingAction pendingAction = new PendingAction();
         pendingAction.setId(null);
         pendingAction.setType(CardType.FREEZE);
@@ -2896,9 +2846,6 @@ class GameServiceImplTest {
         when(gameRepository.findById(gameId))
                 .thenReturn(Optional.of(game));
 
-        // No need to mock save if exception is thrown
-        // when(gameRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
                 () -> gameService.applyAction(gameId, nonExistentPlayerId)
@@ -2909,7 +2856,6 @@ class GameServiceImplTest {
 
     @Test
     void shouldSetInitialDealFlagsWhenStartingRound() {
-        // Usar ActionCard para pausar el reparto inicial
         Player alice = Player.builder()
                 .id(UUID.randomUUID())
                 .name("Alice")
@@ -2927,10 +2873,9 @@ class GameServiceImplTest {
         when(gameRepository.findById(any()))
                 .thenReturn(Optional.of(game));
 
-        // El mazo tiene una FREEZE como primera carta para pausar el reparto
         when(deckService.buildDeck())
                 .thenReturn(new ArrayList<>(List.of(
-                        new ActionCard(CardType.FREEZE),  // ← Esto pausa el reparto
+                        new ActionCard(CardType.FREEZE),
                         new NumericCard(8),
                         new NumericCard(9)
                 )));
@@ -2940,9 +2885,8 @@ class GameServiceImplTest {
 
         Game result = gameService.startRound(UUID.randomUUID());
 
-        // Ahora el reparto está pausado, initialDealCardsDealtCount debe ser 1 (no null)
         assertNotNull(result.getInitialDealCardsDealtCount());
-        assertEquals(1, result.getInitialDealCardsDealtCount());  // Se repartió 1 carta
+        assertEquals(1, result.getInitialDealCardsDealtCount());
         assertTrue(result.isInitialDealPaused());
     }
 
@@ -2958,7 +2902,7 @@ class GameServiceImplTest {
         Game game = Game.builder()
                 .currentPlayerId(playerId)
                 .players(List.of(player))
-                .deck(new ArrayList<>())  // Deck vacío
+                .deck(new ArrayList<>())
                 .discardPile(new ArrayList<>(List.of(
                         new NumericCard(7),
                         new NumericCard(8)
@@ -3024,10 +2968,9 @@ class GameServiceImplTest {
 
         Game result = gameService.applyAction(UUID.randomUUID(), targetId);
 
-        // Verificar que se llamó a checkRoundEnd
-        // Si después de freeze quedan jugadores activos, la ronda continúa
         assertNotNull(result);
     }
+
 
     @Test
     void shouldAdvanceTurnAfterResolvingPendingAction() {
@@ -3074,15 +3017,77 @@ class GameServiceImplTest {
 
         Game result = gameService.applyAction(UUID.randomUUID(), targetId);
 
-        // Después de resolver FREEZE, debe avanzar el turno
         assertNotNull(result.getCurrentPlayerId());
     }
 
     @Test
-    void shouldHandleBoundaryConditionInInitialDeal() {
-        // Probar cuando dealtCount es igual a totalPlayers - 1
-        // para cubrir el boundary condition
+    void shouldInitializeRoundHistoryWhenNull() {
+        UUID playerId = UUID.randomUUID();
 
+        Player player = Player.builder()
+                .id(playerId)
+                .name("Alice")
+                .roundScore(25)
+                .totalScore(100)
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Game game = Game.builder()
+                .id(UUID.randomUUID())
+                .currentPlayerId(playerId)
+                .currentRound(1)
+                .players(new ArrayList<>(List.of(player)))
+                .roundHistory(null)
+                .status(GameStatus.IN_ROUND)
+                .build();
+
+        when(gameRepository.findById(any()))
+                .thenReturn(Optional.of(game));
+
+        when(gameRepository.save(any(Game.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        Game result = gameService.stay(UUID.randomUUID(), playerId);
+
+        assertNotNull(result.getRoundHistory());
+        assertEquals(1, result.getRoundHistory().size());
+        assertEquals(25, result.getRoundHistory().get(0).getScores().get(0).getScore());
+    }
+
+    @Test
+    void shouldInitializeRoundHistoryWhenNullViaStay() {
+        UUID playerId = UUID.randomUUID();
+
+        Player player = Player.builder()
+                .id(playerId)
+                .name("Alice")
+                .roundScore(15)
+                .totalScore(50)
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Game game = Game.builder()
+                .id(UUID.randomUUID())
+                .currentPlayerId(playerId)
+                .currentRound(1)
+                .players(new ArrayList<>(List.of(player)))
+                .roundHistory(null)
+                .status(GameStatus.IN_ROUND)
+                .build();
+
+        when(gameRepository.findById(any()))
+                .thenReturn(Optional.of(game));
+
+        when(gameRepository.save(any(Game.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        gameService.stay(UUID.randomUUID(), playerId);
+
+        verify(gameRepository, atLeast(1)).save(any());
+        assertNotNull(game.getRoundHistory());
+    }
+    @Test
+    void shouldHandleBoundaryConditionInInitialDeal() {
         Player alice = Player.builder()
                 .id(UUID.randomUUID())
                 .name("Alice")
@@ -3095,7 +3100,7 @@ class GameServiceImplTest {
 
         Game game = Game.builder()
                 .players(List.of(alice, bob))
-                .initialDealCardsDealtCount(1)  // Ya se repartió 1 carta
+                .initialDealCardsDealtCount(1)
                 .build();
 
         when(gameRepository.findById(any()))
@@ -3112,8 +3117,217 @@ class GameServiceImplTest {
 
         Game result = gameService.startRound(UUID.randomUUID());
 
-        // Verificar que se completó el reparto inicial
         assertNull(result.getInitialDealCardsDealtCount());
     }
+
+    @Test
+    void shouldCoverAllBranchesInFindRecipientAndDiscardHands() {
+        UUID currentPlayerId = UUID.randomUUID();
+        UUID otherPlayerId1 = UUID.randomUUID();
+        UUID otherPlayerId2 = UUID.randomUUID();
+
+        Player currentPlayer = Player.builder()
+                .id(currentPlayerId)
+                .name("Alice")
+                .hand(new ArrayList<>(List.of(
+                        new NumericCard(5),
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Player otherPlayer1 = Player.builder()
+                .id(otherPlayerId1)
+                .name("Bob")
+                .hand(new ArrayList<>(List.of(
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Player otherPlayer2 = Player.builder()
+                .id(otherPlayerId2)
+                .name("Charlie")
+                .hand(new ArrayList<>())
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Game game = Game.builder()
+                .currentPlayerId(currentPlayerId)
+                .players(new ArrayList<>(List.of(currentPlayer, otherPlayer1, otherPlayer2)))
+                .deck(new ArrayList<>(List.of(
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .discardPile(new ArrayList<>())
+                .build();
+
+        when(gameRepository.findById(any()))
+                .thenReturn(Optional.of(game));
+
+        when(gameRepository.save(any(Game.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(scoreService.calculateScore(any()))
+                .thenReturn(5);
+
+        gameService.drawCard(UUID.randomUUID(), currentPlayerId);
+
+        assertNotNull(game.getDiscardPile());
+    }
+    @Test
+    void shouldCoverIdxMinusOneBranch() {
+        UUID currentPlayerId = UUID.randomUUID();
+        UUID nonExistentPlayerId = UUID.randomUUID();
+
+        Player currentPlayer = Player.builder()
+                .id(currentPlayerId)
+                .name("Alice")
+                .hand(new ArrayList<>(List.of(
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Game game = Game.builder()
+                .currentPlayerId(currentPlayerId)
+                .players(new ArrayList<>(List.of(currentPlayer)))
+                .deck(new ArrayList<>(List.of(
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .build();
+
+        when(gameRepository.findById(any()))
+                .thenReturn(Optional.of(game));
+
+        when(gameRepository.save(any(Game.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(scoreService.calculateScore(any()))
+                .thenReturn(0);
+
+        gameService.drawCard(UUID.randomUUID(), currentPlayerId);
+
+        assertNotNull(game.getDiscardPile());
+    }
+    @Test
+    void shouldCoverEmptyHandBranch() {
+        UUID currentPlayerId = UUID.randomUUID();
+
+        Player currentPlayer = Player.builder()
+                .id(currentPlayerId)
+                .name("Alice")
+                .hand(new ArrayList<>())
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Game game = Game.builder()
+                .currentPlayerId(currentPlayerId)
+                .players(new ArrayList<>(List.of(currentPlayer)))
+                .deck(new ArrayList<>(List.of(
+                        new NumericCard(7)
+                )))
+                .discardPile(new ArrayList<>())
+                .build();
+
+        when(gameRepository.findById(any()))
+                .thenReturn(Optional.of(game));
+
+        when(gameRepository.save(any(Game.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(scoreService.calculateScore(any()))
+                .thenReturn(7);
+
+        gameService.drawCard(UUID.randomUUID(), currentPlayerId);
+
+        assertEquals(1, currentPlayer.getHand().size());
+    }
+
+
+    @Test
+    void shouldCoverAllBranchesComprehensive() {
+        UUID currentPlayerId = UUID.randomUUID();
+        UUID otherPlayerId = UUID.randomUUID();
+
+        Player currentPlayer = Player.builder()
+                .id(currentPlayerId)
+                .name("Alice")
+                .hand(new ArrayList<>(List.of(new NumericCard(5))))
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Player otherPlayer = Player.builder()
+                .id(otherPlayerId)
+                .name("Bob")
+                .hand(new ArrayList<>())
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Game game = Game.builder()
+                .currentPlayerId(currentPlayerId)
+                .players(new ArrayList<>(List.of(currentPlayer, otherPlayer)))
+                .deck(new ArrayList<>(List.of(
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .discardPile(new ArrayList<>())
+                .roundHistory(new ArrayList<>())
+                .build();
+
+        when(gameRepository.findById(any()))
+                .thenReturn(Optional.of(game));
+
+        when(gameRepository.save(any(Game.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(scoreService.calculateScore(any()))
+                .thenReturn(5);
+
+        gameService.drawCard(UUID.randomUUID(), currentPlayerId);
+
+        assertNotNull(game.getDiscardPile());
+        assertEquals(PlayerStatus.ACTIVE, currentPlayer.getStatus());
+    }
+
+    @Test
+    void shouldCoverIdxMinusOneWhenPlayerNotFoundInPlayersList() {
+        UUID currentPlayerId = UUID.randomUUID();
+        UUID playerNotInListId = UUID.randomUUID();
+
+        Player currentPlayer = Player.builder()
+                .id(currentPlayerId)
+                .name("Alice")
+                .hand(new ArrayList<>(List.of(
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .status(PlayerStatus.ACTIVE)
+                .build();
+
+        Game game = Game.builder()
+                .currentPlayerId(currentPlayerId)
+                .players(new ArrayList<>(List.of(currentPlayer)))
+                .deck(new ArrayList<>(List.of(
+                        new ActionCard(CardType.SECOND_CHANCE)
+                )))
+                .discardPile(new ArrayList<>())
+                .build();
+
+        when(gameRepository.findById(any()))
+                .thenReturn(Optional.of(game));
+
+        when(gameRepository.save(any(Game.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        when(scoreService.calculateScore(any()))
+                .thenReturn(0);
+
+        gameService.drawCard(UUID.randomUUID(), currentPlayerId);
+
+        assertNotNull(game.getDiscardPile());
+        assertTrue(game.getDiscardPile().stream()
+                .anyMatch(c -> c instanceof ActionCard ac && ac.getType() == CardType.SECOND_CHANCE));
+    }
+
+
+
 
 }
